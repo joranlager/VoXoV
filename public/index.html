@@ -81,7 +81,7 @@
   <div class="card" id="serverCard">
     <h2>Server</h2>
     <form class="add" id="serverForm" style="margin-top:8px">
-      <input type="text" id="serverUrl" placeholder="https://192.168.68.103:8443" aria-label="VoXoV server address" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <input type="text" id="serverUrl" placeholder="http://localhost:8090" aria-label="VoXoV server address" autocapitalize="off" autocorrect="off" spellcheck="false">
       <button class="small">Connect</button>
     </form>
     <p class="note" id="serverNote" hidden></p>
@@ -148,12 +148,15 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
-// Where the VoXoV server is. Served by the server itself: same origin.
-// On GitHub Pages: the server address entered in the Server box (or ?server=...).
-const IS_PAGES = location.hostname.endsWith('.github.io');
+// Where the VoXoV server is.
+//  - Page served by the VoXoV server itself (ports 8090/8443): same origin.
+//  - Separate page (GitHub Pages, `npm run ui`, …): the server on this computer,
+//    http://localhost:8090, unless another address is set in the Server box or ?server=...
 const qsServer = new URLSearchParams(location.search).get('server');
 if (qsServer) localStorage.setItem('voxov.server', qsServer);
-const BASE = (qsServer || localStorage.getItem('voxov.server') || (IS_PAGES ? '' : location.origin)).replace(/\/+$/, '');
+const SERVED_BY_SERVER = /^https?:$/.test(location.protocol) && ['8090', '8443'].includes(location.port);
+const DEFAULT_SERVER = SERVED_BY_SERVER ? location.origin : 'http://localhost:8090';
+const BASE = (qsServer || localStorage.getItem('voxov.server') || DEFAULT_SERVER).replace(/\/+$/, '');
 
 // ───────────────────────── audio worklets ─────────────────────────
 // Everything on the wire is 48 kHz mono 16-bit in 20 ms frames (960 samples).
@@ -416,8 +419,9 @@ $('scan').onclick = () => scan(true);
 $('serverForm').onsubmit = (e) => {
   e.preventDefault();
   let v = $('serverUrl').value.trim().replace(/\/+$/, '');
-  if (v && !/^https?:\/\//.test(v)) v = 'https://' + v;
-  if (v) localStorage.setItem('voxov.server', v); else localStorage.removeItem('voxov.server');
+  if (v && !/^https?:\/\//.test(v)) v = (/^(localhost|127\.0\.0\.1)(:|$)/.test(v) ? 'http://' : 'https://') + v;
+  // Saving the default would pin it; clearing the box goes back to the default.
+  if (v && v !== DEFAULT_SERVER) localStorage.setItem('voxov.server', v); else localStorage.removeItem('voxov.server');
   history.replaceState(null, '', location.pathname + location.hash); // drop ?server=
   location.reload();
 };
@@ -521,7 +525,8 @@ if (!BASE) {
   }
   el.append('The certificate is self-signed, so the browser shows a warning once — choose “Advanced → proceed”.');
 }).catch((e) => {
-  say($('serverNote'), `Cannot reach ${BASE} (${e.message}). Make sure the server is running, then open ${BASE} once in this browser and accept its certificate.`, true);
+  say($('serverNote'), `Cannot reach the VoXoV server at ${BASE} (${e.message}). Start it with "npm start"` +
+    (BASE.startsWith('https:') ? `, then open ${BASE} once in this browser and accept its certificate.` : '. If the browser asks to allow access to your local network, choose Allow.'), true);
 });
 
 if (BASE && role === 'station') scan(false);
