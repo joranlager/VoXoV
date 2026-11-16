@@ -78,6 +78,15 @@
     <span class="pill" id="peers">offline</span>
   </header>
 
+  <div class="card" id="serverCard">
+    <h2>Server</h2>
+    <form class="add" id="serverForm" style="margin-top:8px">
+      <input type="text" id="serverUrl" placeholder="https://192.168.68.103:8443" aria-label="VoXoV server address" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button class="small">Connect</button>
+    </form>
+    <p class="note" id="serverNote" hidden></p>
+  </div>
+
   <div class="seg" role="group" aria-label="Device role">
     <button id="roleStation" aria-pressed="true">Station</button>
     <button id="roleRoom" aria-pressed="false">Room mic</button>
@@ -138,6 +147,13 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+// Where the VoXoV server is. Served by the server itself: same origin.
+// On GitHub Pages: the server address entered in the Server box (or ?server=...).
+const IS_PAGES = location.hostname.endsWith('.github.io');
+const qsServer = new URLSearchParams(location.search).get('server');
+if (qsServer) localStorage.setItem('voxov.server', qsServer);
+const BASE = (qsServer || localStorage.getItem('voxov.server') || (IS_PAGES ? '' : location.origin)).replace(/\/+$/, '');
 
 // ───────────────────────── audio worklets ─────────────────────────
 // Everything on the wire is 48 kHz mono 16-bit in 20 ms frames (960 samples).
@@ -237,7 +253,9 @@ async function openLink(asRole, onLost) {
   try {
     await ctx.audioWorklet.addModule(WORKLET);
     await ctx.resume();
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=${asRole === 'room' ? 'room' : 'console'}`);
+    if (!BASE) throw new Error('Enter your VoXoV server address in the Server box first.');
+    const wsBase = BASE.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsBase}/ws?role=${asRole === 'room' ? 'room' : 'console'}`);
     ws.binaryType = 'arraybuffer';
     l.ws = ws;
     await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = () => fail(new Error('Could not reach the VoXoV server')); });
@@ -303,7 +321,8 @@ function say(el, text, isErr) {
 }
 
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  if (!BASE) throw new Error('Enter your VoXoV server address in the Server box first.');
+  const r = await fetch(BASE + path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
   return data;
@@ -394,6 +413,15 @@ async function scan(rescan) {
 }
 $('scan').onclick = () => scan(true);
 
+$('serverForm').onsubmit = (e) => {
+  e.preventDefault();
+  let v = $('serverUrl').value.trim().replace(/\/+$/, '');
+  if (v && !/^https?:\/\//.test(v)) v = 'https://' + v;
+  if (v) localStorage.setItem('voxov.server', v); else localStorage.removeItem('voxov.server');
+  history.replaceState(null, '', location.pathname + location.hash); // drop ?server=
+  location.reload();
+};
+
 $('addForm').onsubmit = async (e) => {
   e.preventDefault();
   const ip = $('addIp').value.trim();
@@ -475,9 +503,12 @@ $('roomGo').onclick = async () => {
 // ───────────────────────── boot ─────────────────────────
 
 setRole(role);
-window.addEventListener('pagehide', () => { if (link && role === 'station') navigator.sendBeacon('/api/stop', '{}'); });
+window.addEventListener('pagehide', () => { if (link && role === 'station') navigator.sendBeacon(BASE + '/api/stop', '{}'); });
 
-api('/api/info').then((info) => {
+$('serverUrl').value = BASE;
+if (!BASE) {
+  say($('serverNote'), 'Enter the address of your VoXoV server above. It is the https:// address the server prints when it starts.', false);
+} else api('/api/info').then((info) => {
   onState(info);
   if (!info.mp3) $('format').querySelector('[value="mp3"]').disabled = true;
   const el = $('roomUrl');
@@ -489,9 +520,11 @@ api('/api/info').then((info) => {
     el.append(a, document.createElement('br'));
   }
   el.append('The certificate is self-signed, so the browser shows a warning once — choose “Advanced → proceed”.');
-}).catch(() => {});
+}).catch((e) => {
+  say($('serverNote'), `Cannot reach ${BASE} (${e.message}). Make sure the server is running, then open ${BASE} once in this browser and accept its certificate.`, true);
+});
 
-if (role === 'station') scan(false);
+if (BASE && role === 'station') scan(false);
 </script>
 </body>
 </html>

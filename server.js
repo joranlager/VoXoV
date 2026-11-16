@@ -402,6 +402,15 @@ const json = (res, code, obj) => {
 async function handler(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
+  const origin = req.headers.origin;
+  if (origin && allowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Private-Network', 'true'); // Chrome: public page -> LAN
+  }
+  if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
   try {
     const stream = /^\/sonos\/[0-9a-f]+\/live\.(wav|mp3)$/.exec(p);
     if (stream && (req.method === 'GET' || req.method === 'HEAD')) return handleStream(req, res, stream[1]);
@@ -492,8 +501,22 @@ down.on('frame', (f, active) => {
   }
 });
 
+// Browsers on other sites (e.g. the GitHub Pages UI) may use this server; nobody else may.
+const EXTRA_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://joranlager.github.io')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+function allowedOrigin(origin) {
+  if (EXTRA_ORIGINS.includes(origin)) return true;
+  try {
+    const h = new URL(origin).hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || lanAddresses().includes(h);
+  } catch {
+    return false;
+  }
+}
+
 function onUpgrade(req, socket, head) {
   if (new URL(req.url, 'http://x').pathname !== '/ws') return socket.destroy();
+  if (req.headers.origin && !allowedOrigin(req.headers.origin)) return socket.destroy();
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 }
 
