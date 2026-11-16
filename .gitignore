@@ -1,0 +1,4 @@
+node_modules/
+# Self-signed TLS key/cert generated on first run — private, never commit
+.cert/
+.claude/

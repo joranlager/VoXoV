@@ -1,0 +1,14 @@
+{
+  "name": "voxov",
+  "version": "1.0.0",
+  "description": "Two-way intercom between a browser and Sonos speakers",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "selfsigned": "^2.4.1",
+    "ws": "^8.18.0"
+  }
+}

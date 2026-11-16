@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoXoV Intercom</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --card: #ffffff; --ink: #1c1b19; --muted: #6f6a62; --line: #e2ded6;
+    --accent: #d9481f; --accent-ink: #ffffff; --ok: #2f8f5b; --track: #e9e5dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141312; --card: #1e1c1a; --ink: #f1eee8; --muted: #9c958a; --line: #302d29;
+      --accent: #ff6a3d; --accent-ink: #1a0d07; --ok: #5cc48a; --track: #2b2825;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 14px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--track); border-radius: 12px; padding: 4px; margin-bottom: 16px; }
+  .seg button { border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 10px; border-radius: 9px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .15); }
+  .seg button:disabled { cursor: not-allowed; opacity: .6; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+  button.small, select, input[type="text"] {
+    font: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 9px; padding: 7px 12px;
+  }
+  button.small { cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  ul { list-style: none; margin: 12px 0 0; padding: 0; }
+  li.sp { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+  li.sp input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+  li.sp .name { font-weight: 600; }
+  li.sp .name .live { color: var(--accent); font-size: 12px; margin-left: 6px; text-transform: uppercase; letter-spacing: .06em; }
+  li.sp .meta { color: var(--muted); font-size: 13px; }
+  li.sp .vol { grid-column: 2; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  .empty { color: var(--muted); padding: 16px 0 4px; font-size: 14px; }
+  .add { display: flex; gap: 8px; margin-top: 12px; }
+  .add input { flex: 1; min-width: 0; }
+  .talk {
+    width: 100%; border: 0; border-radius: 14px; padding: 18px; font: inherit; font-size: 18px; font-weight: 700;
+    background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  }
+  .talk.on { background: var(--ink); color: var(--bg); }
+  .meters { display: grid; gap: 10px; margin-top: 16px; }
+  .meter { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  .bar { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--ok); border-radius: 4px; transition: width .06s linear; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 14px; font-size: 14px; color: var(--muted); }
+  .note { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+  .note code, .note a { color: var(--ink); word-break: break-all; }
+  .msg { margin: 12px 0 0; font-size: 14px; }
+  .msg.err { color: var(--accent); }
+  .pill { font-size: 13px; padding: 3px 10px; border-radius: 99px; background: var(--track); color: var(--muted); white-space: nowrap; }
+  .pill.ok { color: var(--ok); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Vo<span>X</span>oV</h1>
+      <div class="sub">Two-way intercom for Sonos</div>
+    </div>
+    <span class="pill" id="peers">offline</span>
+  </header>
+
+  <div class="seg" role="group" aria-label="Device role">
+    <button id="roleStation" aria-pressed="true">Station</button>
+    <button id="roleRoom" aria-pressed="false">Room mic</button>
+  </div>
+
+  <!-- ───────── Station: talk through Sonos, hear the room mics ───────── -->
+  <section id="station">
+    <div class="card">
+      <div class="row">
+        <h2>Speakers</h2>
+        <button class="small" id="scan">Scan</button>
+      </div>
+      <ul id="list"></ul>
+      <div class="empty" id="empty" hidden></div>
+      <form class="add" id="addForm">
+        <input type="text" id="addIp" inputmode="decimal" placeholder="Add by IP, e.g. 192.168.1.50" aria-label="Speaker IP address">
+        <button class="small">Add</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <button class="talk" id="go">Start intercom</button>
+      <div class="meters">
+        <div class="meter"><span>You → speakers</span><div class="bar"><i id="mOut"></i></div></div>
+        <div class="meter"><span>Room → you</span><div class="bar"><i id="mIn"></i></div></div>
+      </div>
+      <div class="opts">
+        <label><input type="checkbox" id="mute"> Mute my mic</label>
+        <label>Stream
+          <select id="format">
+            <option value="wav">WAV (lowest delay)</option>
+            <option value="mp3">MP3 radio (most compatible)</option>
+          </select>
+        </label>
+      </div>
+      <p class="msg" id="msg" hidden></p>
+    </div>
+
+    <div class="card">
+      <h2>Hearing the room</h2>
+      <p class="note">Sonos gives apps no access to its microphones. To hear the room, open this address on a phone or laptop near the speaker and choose <b>Room mic</b>:</p>
+      <p class="note" id="roomUrl"></p>
+    </div>
+  </section>
+
+  <!-- ───────── Room mic: this device is the room's microphone ───────── -->
+  <section id="room" hidden>
+    <div class="card">
+      <button class="talk" id="roomGo">Start room microphone</button>
+      <div class="meters">
+        <div class="meter"><span>Room → station</span><div class="bar"><i id="mRoom"></i></div></div>
+      </div>
+      <p class="msg" id="roomMsg" hidden></p>
+      <p class="note">Leave this device near the Sonos speaker with the screen on. It sends the room's sound to the station; the station's voice comes out of the Sonos speaker.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// ───────────────────────── audio worklets ─────────────────────────
+// Everything on the wire is 48 kHz mono 16-bit in 20 ms frames (960 samples).
+const WORKLET = URL.createObjectURL(new Blob([`
+  const N = 960;
+  class Cap extends AudioWorkletProcessor {
+    constructor() {
+      super();
+      this.buf = new Int16Array(N); this.n = 0;
+      this.step = sampleRate / 48000; this.pos = 0; this.prev = 0; this.muted = false;
+      this.port.onmessage = (e) => { this.muted = e.data.muted; };
+    }
+    process(inputs) {
+      const ch = inputs[0] && inputs[0][0];
+      if (!ch) return true;
+      let pos = this.pos;
+      while (pos < ch.length) {                       // linear resample to 48 kHz
+        const i = Math.floor(pos), f = pos - i;
+        const a = i === 0 ? this.prev : ch[i - 1];
+        const v = this.muted ? 0 : a + (ch[i] - a) * f;
+        this.buf[this.n++] = Math.max(-1, Math.min(1, v)) * 32767;
+        if (this.n === N) {
+          const out = this.buf.slice();
+          this.port.postMessage(out.buffer, [out.buffer]);
+          this.n = 0;
+        }
+        pos += this.step;
+      }
+      this.pos = pos - ch.length;
+      this.prev = ch[ch.length - 1];
+      return true;
+    }
+  }
+  class Play extends AudioWorkletProcessor {
+    constructor() {
+      super();
+      this.size = 48000; this.buf = new Float32Array(this.size);
+      this.w = 0; this.r = 0; this.primed = false; this.step = 48000 / sampleRate;
+      this.port.onmessage = (e) => {
+        const s = new Int16Array(e.data);
+        for (let i = 0; i < s.length; i++) this.buf[(this.w + i) % this.size] = s[i] / 32768;
+        this.w += s.length;
+        if (this.w - this.r > 14400) this.r = this.w - 2880;   // >300 ms queued: skip ahead
+      };
+    }
+    process(_, outputs) {
+      const out = outputs[0];
+      const L = out[0];
+      for (let k = 0; k < L.length; k++) {
+        const avail = this.w - Math.floor(this.r);
+        if (!this.primed) { if (avail >= 2880) this.primed = true; else { L[k] = 0; continue; } }
+        if (avail < 2) { this.primed = false; L[k] = 0; continue; }
+        const i = Math.floor(this.r), f = this.r - i;
+        const a = this.buf[i % this.size], b = this.buf[(i + 1) % this.size];
+        L[k] = a + (b - a) * f;
+        this.r += this.step;
+      }
+      for (let c = 1; c < out.length; c++) out[c].set(L);
+      return true;
+    }
+  }
+  registerProcessor('cap', Cap);
+  registerProcessor('play', Play);
+`], { type: 'application/javascript' }));
+
+// ───────────────────────── shared audio link ─────────────────────────
+
+let role = location.hash === '#room' ? 'room' : 'station';
+let link = null;      // { ctx, mic, cap, ws, wake }
+const levels = { out: 0, in: 0 };
+
+function rms(int16) {
+  let sum = 0;
+  for (let i = 0; i < int16.length; i += 4) sum += int16[i] * int16[i];
+  return Math.min(1, Math.sqrt(sum / (int16.length / 4)) / 32768 * 4);
+}
+
+(function paint() {
+  const room = role === 'room';
+  $('mOut').style.width = (room ? 0 : levels.out * 100) + '%';
+  $('mIn').style.width = levels.in * 100 + '%';
+  $('mRoom').style.width = (room ? levels.out * 100 : 0) + '%';
+  levels.out *= 0.85; levels.in *= 0.85;
+  requestAnimationFrame(paint);
+})();
+
+async function openLink(asRole, onLost) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('This browser blocks the microphone on insecure pages. Open the https:// address instead.');
+  }
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+  });
+  let ctx;
+  try { ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' }); } catch { ctx = new AudioContext(); }
+  const l = { ctx, mic, closed: false };
+  try {
+    await ctx.audioWorklet.addModule(WORKLET);
+    await ctx.resume();
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=${asRole === 'room' ? 'room' : 'console'}`);
+    ws.binaryType = 'arraybuffer';
+    l.ws = ws;
+    await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = () => fail(new Error('Could not reach the VoXoV server')); });
+
+    l.cap = new AudioWorkletNode(ctx, 'cap', { numberOfInputs: 1, numberOfOutputs: 0 });
+    ctx.createMediaStreamSource(mic).connect(l.cap);
+    l.cap.port.onmessage = (e) => {
+      levels.out = Math.max(levels.out, rms(new Int16Array(e.data)));
+      if (ws.readyState === 1 && ws.bufferedAmount < 200000) ws.send(e.data);
+    };
+    let play = null;
+    if (asRole !== 'room') {
+      play = new AudioWorkletNode(ctx, 'play', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+      play.connect(ctx.destination);
+    }
+    ws.onmessage = (e) => {
+      if (typeof e.data === 'string') { onState(JSON.parse(e.data)); return; }
+      levels.in = Math.max(levels.in, rms(new Int16Array(e.data)));
+      play?.port.postMessage(e.data, [e.data]);
+    };
+    ws.onclose = () => { if (!l.closed) { closeLink(); onLost(); } };
+    navigator.wakeLock?.request('screen').then((w) => { l.wake = w; }).catch(() => {});
+    link = l;
+    return l;
+  } catch (e) {
+    l.closed = true;
+    mic.getTracks().forEach((t) => t.stop());
+    l.ws?.close();
+    ctx.close();
+    throw e;
+  }
+}
+
+function closeLink() {
+  const l = link;
+  if (!l) return;
+  link = null;
+  l.closed = true;
+  l.mic.getTracks().forEach((t) => t.stop());
+  l.ws.close();
+  l.ctx.close();
+  l.wake?.release().catch(() => {});
+}
+
+// ───────────────────────── role switch ─────────────────────────
+
+function setRole(r) {
+  role = r;
+  $('station').hidden = r !== 'station';
+  $('room').hidden = r !== 'room';
+  $('roleStation').setAttribute('aria-pressed', r === 'station');
+  $('roleRoom').setAttribute('aria-pressed', r === 'room');
+  history.replaceState(null, '', r === 'room' ? '#room' : location.pathname);
+}
+$('roleStation').onclick = () => setRole('station');
+$('roleRoom').onclick = () => setRole('room');
+const lockRole = (on) => { $('roleStation').disabled = $('roleRoom').disabled = on; };
+
+function say(el, text, isErr) {
+  el.hidden = !text;
+  el.textContent = text || '';
+  el.classList.toggle('err', !!isErr);
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+}
+
+// ───────────────────────── server state ─────────────────────────
+
+let active = [];
+function onState(s) {
+  active = s.active || [];
+  const p = $('peers');
+  p.textContent = `${s.rooms} room mic${s.rooms === 1 ? '' : 's'} · ${s.stations} station${s.stations === 1 ? '' : 's'}`;
+  p.classList.toggle('ok', s.rooms > 0 && s.stations > 0);
+  for (const li of document.querySelectorAll('li.sp')) li.querySelector('.live').hidden = !active.includes(li.dataset.uuid);
+}
+
+// ───────────────────────── speakers ─────────────────────────
+
+const selected = new Set(JSON.parse(localStorage.getItem('voxov.selected') || '[]'));
+
+function renderSpeakers(speakers) {
+  const list = $('list');
+  list.replaceChildren();
+  say($('empty'), speakers.length ? '' : 'No Sonos speakers found. Check that this computer is on the same network, or add one by IP below.');
+  for (const sp of speakers) {
+    const li = document.createElement('li');
+    li.className = 'sp';
+    li.dataset.uuid = sp.uuid;
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = 'cb-' + sp.uuid;
+    cb.checked = selected.has(sp.uuid);
+    cb.onchange = () => {
+      cb.checked ? selected.add(sp.uuid) : selected.delete(sp.uuid);
+      localStorage.setItem('voxov.selected', JSON.stringify([...selected]));
+    };
+
+    const label = document.createElement('label');
+    label.htmlFor = cb.id;
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = sp.name;
+    const live = document.createElement('span');
+    live.className = 'live';
+    live.textContent = '● live';
+    live.hidden = !active.includes(sp.uuid);
+    name.append(live);
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = [sp.model, sp.ip, sp.group.length ? `grouped with ${sp.group.join(', ')}` : ''].filter(Boolean).join(' · ');
+    label.append(name, meta);
+    li.append(cb, label);
+
+    if (sp.volume != null) {
+      const vol = document.createElement('div');
+      vol.className = 'vol';
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = 0; range.max = 100; range.value = sp.volume;
+      range.setAttribute('aria-label', `${sp.name} volume`);
+      const num = document.createElement('span');
+      num.textContent = sp.volume;
+      let t;
+      range.oninput = () => {
+        num.textContent = range.value;
+        clearTimeout(t);
+        t = setTimeout(() => api('/api/volume', { uuid: sp.uuid, volume: Number(range.value) }).catch(() => {}), 120);
+      };
+      vol.append('Vol', range, num);
+      li.append(vol);
+    }
+    list.append(li);
+  }
+}
+
+async function scan(rescan) {
+  const btn = $('scan');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  try {
+    renderSpeakers((await api('/api/speakers' + (rescan ? '?rescan' : ''))).speakers);
+  } catch (e) {
+    say($('empty'), e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan';
+  }
+}
+$('scan').onclick = () => scan(true);
+
+$('addForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const ip = $('addIp').value.trim();
+  if (!ip) return;
+  try {
+    renderSpeakers((await api('/api/add', { ip })).speakers);
+    $('addIp').value = '';
+  } catch (err) {
+    say($('empty'), err.message, true);
+  }
+};
+
+// ───────────────────────── station ─────────────────────────
+
+let busy = false;
+function stationUi(on) {
+  $('go').textContent = on ? 'Stop intercom' : 'Start intercom';
+  $('go').classList.toggle('on', on);
+  $('format').disabled = on;
+  lockRole(on);
+}
+
+async function stationStop(message, isErr) {
+  closeLink();
+  stationUi(false);
+  say($('msg'), message || '', isErr);
+  await api('/api/stop', {}).catch(() => {});
+}
+
+$('go').onclick = async () => {
+  if (busy) return;
+  busy = true;
+  try {
+    if (link) { await stationStop(); return; }
+    const uuids = [...document.querySelectorAll('li.sp input[type="checkbox"]:checked')].map((c) => c.closest('li').dataset.uuid);
+    if (!uuids.length) { say($('msg'), 'Tick at least one speaker first.', true); return; }
+    say($('msg'), 'Starting…');
+    const l = await openLink('station', () => stationStop('Connection to the server was lost.', true));
+    l.cap.port.postMessage({ muted: $('mute').checked });
+    stationUi(true);
+    const { results } = await api('/api/start', { uuids, format: $('format').value });
+    const ok = results.filter((r) => r.ok);
+    const bad = results.filter((r) => !r.ok);
+    if (!ok.length) throw new Error(bad.map((r) => `${r.name}: ${r.error}`).join(' — ') || 'No speaker accepted the stream');
+    say($('msg'),
+      `Live on ${ok.map((r) => r.name).join(', ')}. Sonos buffers a few seconds before your voice comes out.` +
+      (bad.length ? ` Failed: ${bad.map((r) => `${r.name} (${r.error})`).join(', ')}.` : ''), bad.length > 0);
+  } catch (e) {
+    await stationStop(e.name === 'NotAllowedError' ? 'Microphone permission was denied.' : e.message, true);
+  } finally {
+    busy = false;
+  }
+};
+
+$('mute').onchange = () => link?.cap.port.postMessage({ muted: $('mute').checked });
+
+// ───────────────────────── room mic ─────────────────────────
+
+function roomUi(on) {
+  $('roomGo').textContent = on ? 'Stop room microphone' : 'Start room microphone';
+  $('roomGo').classList.toggle('on', on);
+  lockRole(on);
+}
+$('roomGo').onclick = async () => {
+  if (busy) return;
+  busy = true;
+  try {
+    if (link) { closeLink(); roomUi(false); say($('roomMsg'), ''); return; }
+    await openLink('room', () => { roomUi(false); say($('roomMsg'), 'Connection to the server was lost.', true); });
+    roomUi(true);
+    say($('roomMsg'), 'Sending this room’s sound to the station.');
+  } catch (e) {
+    say($('roomMsg'), e.name === 'NotAllowedError' ? 'Microphone permission was denied.' : e.message, true);
+  } finally {
+    busy = false;
+  }
+};
+
+// ───────────────────────── boot ─────────────────────────
+
+setRole(role);
+window.addEventListener('pagehide', () => { if (link && role === 'station') navigator.sendBeacon('/api/stop', '{}'); });
+
+api('/api/info').then((info) => {
+  onState(info);
+  if (!info.mp3) $('format').querySelector('[value="mp3"]').disabled = true;
+  const el = $('roomUrl');
+  if (!info.secureUrls.length) { el.textContent = 'HTTPS is not running on the server, so other devices cannot use their microphone.'; return; }
+  for (const u of info.secureUrls) {
+    const a = document.createElement('a');
+    a.href = u + '/#room';
+    a.textContent = u + '/#room';
+    el.append(a, document.createElement('br'));
+  }
+  el.append('The certificate is self-signed, so the browser shows a warning once — choose “Advanced → proceed”.');
+}).catch(() => {});
+
+if (role === 'station') scan(false);
+</script>
+</body>
+</html>
